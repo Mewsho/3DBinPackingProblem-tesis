@@ -5,30 +5,35 @@ from typing import List, Tuple
 import time
 import os
 
+
 @dataclass
 class Box:
     dims: Tuple[float, float, float]
     weight: float
     id: str
 
+
 def parse_data() -> Tuple[Tuple[float, float, float], float, List[Box]]:
-    cont_dims = (260, 280, 200)
-    max_w = 1000
+    cont_dims = (260, 280, 200)  # cm
+    max_w = 1000  # kg
     
     boxes = []
     data = [
         ("1", 2, 34, 16, 27, 40.07), ("2", 4, 75, 83, 80, 15.97), ("3", 5, 79, 85, 83, 19.36),
         ("4", 4, 46, 97, 95, 41.98), ("5", 2, 77, 42, 87, 25.92), ("6", 4, 68, 82, 23, 3.54),
         ("7", 3, 66, 87, 62, 2.86), ("8", 5, 14, 92, 92, 15.37), ("9", 1, 54, 43, 30, 43.76),
-        ("10", 5, 22, 55, 12, 33.65)
+        ("10", 7, 22, 55, 12, 33.65)
     ]
     
+    total_boxes = 0
     for id_, cant, l, w, h, pw in data:
         for _ in range(int(cant)):
             boxes.append(Box((float(l), float(w), float(h)), float(pw), id_))
+        total_boxes += int(cant)
     
-    print(f"Datos cargados: {len(boxes)} cajas")
+    print(f"Datos cargados: {len(boxes)} cajas (total: {total_boxes})")
     return cont_dims, max_w, boxes
+
 
 def fast_volume_fitness(individual, box_volumes, box_weights, cont_volume, max_weight, n_boxes):
     """Fitness ultrarrápido SIN numpy para evitar problemas"""
@@ -45,6 +50,7 @@ def fast_volume_fitness(individual, box_volumes, box_weights, cont_volume, max_w
     
     fitness = density * 0.7 + utilization * 0.3
     return (fitness, selected_vol, n_containers, n_selected)
+
 
 class GeneticAlgorithm3DBinPacking:
     def __init__(self, boxes: List[Box], cont_dims: Tuple[float, float, float], max_w: float):
@@ -73,7 +79,7 @@ class GeneticAlgorithm3DBinPacking:
         return child1, child2
     
     def log_progress(self, gen, best_fitness, best_n_boxes, best_vol, population_size, elapsed):
-        print(f"Gen {gen:3d} | Fitness: {best_fitness:.4f} | Cajas: {best_n_boxes}/35 | "
+        print(f"Gen {gen:3d} | Fitness: {best_fitness:.4f} | Cajas: {best_n_boxes}/{self.n_boxes} | "
               f"Vol: {best_vol/1e6:6.2f}m3 | Tiempo: {elapsed:.1f}s")
     
     def run(self, population_size=200, generations=50, mutation_rate=0.12):
@@ -91,11 +97,11 @@ class GeneticAlgorithm3DBinPacking:
         for gen in range(generations):
             gen_start = time.time()
             
-            # EVALUACIÓN SECUENCIAL (SIN MULTIPROCESSING para evitar errores)
+            # EVALUACIÓN SECUENCIAL
             fitness_results = []
             for i, ind in enumerate(population):
                 result = fast_volume_fitness(ind, self.box_volumes, self.box_weights, 
-                                          self.cont_volume, self.max_w, self.n_boxes)
+                                            self.cont_volume, self.max_w, self.n_boxes)
                 fitness_results.append((result[0], result[1], result[2], result[3], i))
             
             # ORDENAR POR FITNESS
@@ -118,9 +124,9 @@ class GeneticAlgorithm3DBinPacking:
             self.log_progress(gen, current_fitness, current_n_boxes, current_vol, 
                             population_size, elapsed_gen)
             
-            # ✅ NUEVA GENERACIÓN - SIN ERRORES DE UNPACKING
+            # NUEVA GENERACIÓN
             elite_size = max(1, population_size // 10)
-            elite_indices = [item[4] for item in fitness_results[:elite_size]]  # ✅ SOLO EL ÍNDICE
+            elite_indices = [item[4] for item in fitness_results[:elite_size]]
             next_population = [population[idx] for idx in elite_indices]
             
             # GENERAR RESTO DE POBLACIÓN
@@ -146,6 +152,7 @@ class GeneticAlgorithm3DBinPacking:
         print(f"\nTiempo total: {total_time:.1f} segundos")
         return best_solution
 
+
 def print_final_report(best_solution, boxes, cont_dims):
     cont_volume = np.prod(cont_dims)
     n_containers = best_solution['containers']
@@ -160,18 +167,19 @@ def print_final_report(best_solution, boxes, cont_dims):
     print("\n" + "="*80)
     print("RESULTADO FINAL - OPTIMIZACION 3D BIN PACKING")
     print("="*80)
-    print(f"Paquetes utilizados: {best_solution['n_boxes']:2d} / 35")
+    print(f"Paquetes utilizados: {best_solution['n_boxes']:2d} / {len(boxes)}")
     print(f"Contenedores requeridos: {n_containers}")
     print()
-    print(f"Volumen usado:     {vol_used_m3:8.3f} m3 ({total_volume_used:>10,.0f} cm3)")
-    print(f"Volumen restante:  {vol_remaining_m3:8.3f} m3")
-    print(f"Densidad volumen:  {total_volume_used/(n_containers*cont_volume)*100:6.1f}%")
+    print(f"Volumen usado:      {vol_used_m3:8.3f} m3 ({total_volume_used:>10,.0f} cm3)")
+    print(f"Volumen restante:   {vol_remaining_m3:8.3f} m3")
+    print(f"Densidad volumen:   {total_volume_used/(n_containers*cont_volume)*100:6.1f}%")
     print()
-    print(f"Peso usado:        {total_weight_used:8.1f} kg")
-    print(f"Peso restante:     {n_containers*1000 - total_weight_used:8.1f} kg")
-    print(f"Densidad peso:     {total_weight_used/(n_containers*1000)*100:6.1f}%")
-    print(f"Fitness final:     {best_solution['fitness']:6.4f}")
+    print(f"Peso usado:         {total_weight_used:8.1f} kg")
+    print(f"Peso restante:      {n_containers*1000 - total_weight_used:8.1f} kg")
+    print(f"Densidad peso:      {total_weight_used/(n_containers*1000)*100:6.1f}%")
+    print(f"Fitness final:      {best_solution['fitness']:6.4f}")
     print("-"*80)
+
 
 if __name__ == "__main__":
     cont_dims, max_w, boxes = parse_data()
