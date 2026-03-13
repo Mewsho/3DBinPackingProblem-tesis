@@ -1,6 +1,6 @@
 # Max num of bins: 1
 # Bin dimensions (L * W * H): (1100,1100,1100)
-# Max weight: 400
+# Max weight: 4000
 # Relative pos: 
 # Incompatibilities: 
 # Positive affinities: 
