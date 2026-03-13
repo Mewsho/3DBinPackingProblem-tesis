@@ -1,36 +1,3 @@
-"""
-3D Bin Packing Problem con Algoritmo Genético
-=============================================
-BUGS CORREGIDOS vs versión original:
-
-BUG 1 — Fitness volumétrico sin colocación real:
-    El fitness original solo sumaba volúmenes (L*W*H) y los dividía por el
-    volumen del contenedor. Nunca simulaba la colocación física de las cajas.
-    Consecuencia: ignoraba completamente las dimensiones individuales.
-    CORRECCIÓN: Se implementó Container3D con guillotine cuts para colocar
-    cada caja en un espacio libre real y verificar que efectivamente quepa.
-
-BUG 2 — Cromosoma binario incorrecto:
-    El cromosoma [0,1,1,0,...] solo indicaba si una caja "iba o no iba".
-    No capturaba el ORDEN de colocación, que es lo que determina si las
-    cajas caben espacialmente. Con el mismo set de cajas seleccionadas,
-    distintos órdenes producen resultados completamente distintos.
-    CORRECCIÓN: Cromosoma = permutación de índices. El GA optimiza el
-    orden en que las cajas se intentan colocar. Las que no caben se omiten.
-
-BUG 3 — Sin rotaciones:
-    Las cajas pueden orientarse en 6 formas (L×W×H, L×H×W, W×L×H, ...).
-    El original nunca las consideraba.
-    CORRECCIÓN: get_rotations() genera las 6 orientaciones únicas y el
-    packer elige la que mejor aprovecha el espacio disponible.
-
-BUG 4 — Crossover incompatible con permutaciones:
-    El crossover de 1 punto funciona para binarios, pero aplicado a
-    permutaciones genera índices duplicados y faltantes.
-    CORRECCIÓN: Se usa Order Crossover (OX), que preserva la validez
-    de la permutación (cada índice aparece exactamente una vez).
-"""
-
 import re
 import sys
 import random
@@ -39,20 +6,13 @@ from dataclasses import dataclass
 from typing import List, Tuple
 import time
 
-
 @dataclass
 class Box:
     dims: Tuple[float, float, float]  # (largo, ancho, alto) en cm
     weight: float                      # kg
     id: str
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# CORRECCIÓN BUG 1 y 3: Contenedor con colocación 3D real + rotaciones
-# ─────────────────────────────────────────────────────────────────────────────
-
 class Space:
-    """Espacio libre rectangular dentro del contenedor."""
     __slots__ = ['x', 'y', 'z', 'w', 'd', 'h']
 
     def __init__(self, x, y, z, w, d, h):
@@ -63,21 +23,10 @@ class Space:
         return self.w * self.d * self.h
 
     def can_fit(self, bw, bd, bh) -> bool:
-        """¿Puede entrar una caja de estas dimensiones en este espacio?"""
         return bw <= self.w + 1e-9 and bd <= self.d + 1e-9 and bh <= self.h + 1e-9
 
 
 class Container3D:
-    """
-    Contenedor 3D que rastrea posiciones reales de cada caja.
-
-    Algoritmo de colocación: Guillotine Cuts + Best Fit.
-    Cuando se coloca una caja en un espacio libre, el espacio restante
-    se divide en hasta 3 nuevos rectángulos sin solapamiento:
-        - Derecha de la caja (ocupa toda la altura y profundidad del espacio)
-        - Detrás de la caja (limitado al ancho de la caja)
-        - Encima de la caja (limitado al ancho y profundidad de la caja)
-    """
 
     def __init__(self, dims: Tuple[float, float, float], max_weight: float):
         self.W, self.D, self.H = dims
@@ -94,16 +43,10 @@ class Container3D:
 
     @staticmethod
     def get_rotations(l, w, h) -> List[Tuple[float, float, float]]:
-        """Retorna las hasta 6 orientaciones únicas de la caja."""
         return list({(l, w, h), (l, h, w), (w, l, h),
                      (w, h, l), (h, l, w), (h, w, l)})
 
     def try_place(self, box: Box) -> bool:
-        """
-        Intenta colocar la caja en el espacio libre más ajustado (Best Fit).
-        Prueba las 6 rotaciones posibles.
-        Retorna True si la colocación fue exitosa.
-        """
         # Verificar restricción de peso
         if self.current_weight + box.weight > self.max_weight + 1e-9:
             return False
@@ -117,7 +60,6 @@ class Container3D:
             bw, bd, bh = rot
             for i, space in enumerate(self.spaces):
                 if space.can_fit(bw, bd, bh):
-                    # Best Fit: preferir el espacio que deja menos desperdicio
                     waste = space.volume() - bw * bd * bh
                     if waste < best_waste:
                         best_waste = waste
@@ -125,12 +67,11 @@ class Container3D:
                         best_rotation = rot
 
         if best_space_idx is None:
-            return False   # No cabe en ningún espacio disponible
+            return False  
 
         space = self.spaces[best_space_idx]
         bw, bd, bh = best_rotation
 
-        # Registrar la caja con posición y orientación reales
         self.placed.append({
             'box': box,
             'pos': (space.x, space.y, space.z),
@@ -139,23 +80,19 @@ class Container3D:
         self.current_weight += box.weight
         self.volume_used += bw * bd * bh
 
-        # Guillotine cuts: dividir el espacio restante en 3 nuevos subespacios
         new_spaces = []
 
         if space.w - bw > 1e-6:
-            # Espacio a la DERECHA: toda la altura y profundidad del espacio original
             new_spaces.append(Space(
                 space.x + bw, space.y, space.z,
                 space.w - bw, space.d, space.h
             ))
         if space.d - bd > 1e-6:
-            # Espacio DETRÁS: limitado al ancho de la caja
             new_spaces.append(Space(
                 space.x, space.y + bd, space.z,
                 bw, space.d - bd, space.h
             ))
         if space.h - bh > 1e-6:
-            # Espacio ENCIMA: limitado al ancho y profundidad de la caja
             new_spaces.append(Space(
                 space.x, space.y, space.z + bh,
                 bw, bd, space.h - bh
@@ -172,16 +109,8 @@ class Container3D:
         return self.current_weight / self.max_weight
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Simulación de empacado (desacoplada del GA para facilitar pruebas)
-# ─────────────────────────────────────────────────────────────────────────────
-
 def simulate_packing(order: List[int], boxes: List[Box],
                      cont_dims: Tuple, max_weight: float) -> dict:
-    """
-    Coloca las cajas en el orden indicado por `order`.
-    Las cajas que no caben (por volumen, dimensiones o peso) se omiten.
-    """
     container = Container3D(cont_dims, max_weight)
     for idx in order:
         container.try_place(boxes[idx])
@@ -196,11 +125,6 @@ def simulate_packing(order: List[int], boxes: List[Box],
         'placed':       container.placed,
     }
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Algoritmo Genético — CORRECCIONES BUG 2 y 4
-# ─────────────────────────────────────────────────────────────────────────────
-
 class GeneticAlgorithm3DBinPacking:
     def __init__(self, boxes: List[Box], cont_dims: Tuple[float, float, float], max_w: float):
         self.boxes = boxes
@@ -208,7 +132,6 @@ class GeneticAlgorithm3DBinPacking:
         self.max_w = max_w
         self.n = len(boxes)
 
-    # CORRECCIÓN BUG 2: cromosoma = permutación de índices (orden de colocación)
     def create_individual(self) -> List[int]:
         ind = list(range(self.n))
         random.shuffle(ind)
@@ -217,17 +140,11 @@ class GeneticAlgorithm3DBinPacking:
     def fitness(self, individual: List[int]) -> Tuple[float, dict]:
         result = simulate_packing(individual, self.boxes, self.cont_dims, self.max_w)
         pack_ratio = result['packed_count'] / result['total']
-        # Objetivo: maximizar cajas empacadas y utilización volumétrica
         score = pack_ratio * 0.65 + result['vol_util'] * 0.35
         return score, result
 
     # CORRECCIÓN BUG 4: Order Crossover (OX) — válido para permutaciones
     def order_crossover(self, p1: List[int], p2: List[int]) -> List[int]:
-        """
-        Copia un segmento de p1 al hijo, luego rellena con los elementos
-        de p2 en el orden en que aparecen, sin repetir.
-        Garantiza que el hijo sea una permutación válida.
-        """
         n = self.n
         a, b = sorted(random.sample(range(n), 2))
         child = [-1] * n
@@ -268,20 +185,18 @@ class GeneticAlgorithm3DBinPacking:
         start = time.time()
 
         for gen in range(generations):
-            # Evaluar toda la población
+
             evaluated = []
             for ind in population:
                 f, result = self.fitness(ind)
                 evaluated.append((f, result, ind))
             evaluated.sort(key=lambda x: x[0], reverse=True)
 
-            # Actualizar mejor global
             if evaluated[0][0] > best_fitness:
                 best_fitness = evaluated[0][0]
                 best_result  = evaluated[0][1]
                 best_individual = evaluated[0][2][:]
 
-            # Log de progreso
             r = evaluated[0][1]
             elapsed = time.time() - start
             print(f"  Gen {gen + 1:3d}/{generations} | "
@@ -291,7 +206,6 @@ class GeneticAlgorithm3DBinPacking:
                   f"Peso: {r['weight_util'] * 100:5.1f}% | "
                   f"t: {elapsed:.1f}s")
 
-            # Elitismo + nueva generación
             elite_size    = max(2, population_size // 10)
             max_parent_idx = min(elite_size * 3, len(evaluated) - 1)
             next_pop = [ind for _, _, ind in evaluated[:elite_size]]
@@ -312,36 +226,16 @@ class GeneticAlgorithm3DBinPacking:
         return best_individual, best_result
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Datos y reporte
-# ─────────────────────────────────────────────────────────────────────────────
-
+# Datos y reporte final
 def parse_data(filepath: str = None) -> Tuple[Tuple[float, float, float], float, List[Box]]:
-    """
-    Lee el archivo de entrada con el siguiente formato:
-        # Max num of bins: <n>
-        # Bin dimensions (L * W * H): (L,W,H)
-        # Max weight: <valor o vacío>
-        # Relative pos: ...          ← ignorado
-        # Incompatibilities: ...     ← ignorado
-        # Positive affinities: ...   ← ignorado
-        # Center of mass: ...        ← ignorado
-
-          id    quantity    length    width    height    weight
-        ----  ----------  --------  -------  --------  --------
-           0           1       127      167       161        20
-           ...
-
-    Si no se proporciona filepath se usa sys.argv[1]; si tampoco existe, error.
-    Si Max weight está vacío se asume sin restricción (float('inf')).
-    """
+   
     if filepath is None:
         if len(sys.argv) < 2:
             raise ValueError("Uso: python 3DBPPGA.py <archivo_entrada.txt>")
         filepath = sys.argv[1]
 
     cont_dims = None
-    max_w     = float('inf')   # sin restricción por defecto
+    max_w     = float('inf')   
     boxes     = []
     in_table  = False
 
@@ -349,14 +243,12 @@ def parse_data(filepath: str = None) -> Tuple[Tuple[float, float, float], float,
         for line in f:
             stripped = line.strip()
 
-            # ── Dimensiones del contenedor ─────────────────────────────────
             m = re.match(r'#\s*Bin dimensions.*?:\s*\(([^)]+)\)', stripped)
             if m:
                 parts = [float(x) for x in m.group(1).split(',')]
                 cont_dims = tuple(parts[:3])
                 continue
 
-            # ── Peso máximo ────────────────────────────────────────────────
             m = re.match(r'#\s*Max weight\s*:\s*(.*)', stripped)
             if m:
                 val = m.group(1).strip()
@@ -364,20 +256,16 @@ def parse_data(filepath: str = None) -> Tuple[Tuple[float, float, float], float,
                     max_w = float(val)
                 continue
 
-            # ── Líneas de metadatos ignoradas ──────────────────────────────
             if stripped.startswith('#'):
                 continue
 
-            # ── Detectar inicio de tabla (línea de guiones) ────────────────
             if re.match(r'^-+', stripped):
                 in_table = True
                 continue
 
-            # ── Cabecera de la tabla ───────────────────────────────────────
             if re.match(r'\s*id\s+quantity', stripped):
                 continue
 
-            # ── Filas de datos ─────────────────────────────────────────────
             if in_table and stripped:
                 cols = stripped.split()
                 if len(cols) >= 5:
